@@ -1,0 +1,8 @@
+node_modules/
+uploads/
+dist/
+.env
+field-pro-speech-to-text-poc-0f05dc93d5d4.json
+.wav
+.m4a
+.http
