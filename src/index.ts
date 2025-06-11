@@ -4,12 +4,14 @@ import multer from 'multer';
 import cors from 'cors';
 import { SpeechClient } from '@google-cloud/speech';
 import { Storage } from '@google-cloud/storage';
+import textToSpeech, { protos } from '@google-cloud/text-to-speech';
 import fs from 'fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 const PORT = process.env.PORT ?? 3001;
 
 // Configures Multer to save uploaded files to a local uploads/ folder.
@@ -17,6 +19,7 @@ const upload = multer({ dest: 'uploads/' });
 
 const speechClient = new SpeechClient();
 const storage = new Storage();
+const ttsClient = new textToSpeech.TextToSpeechClient();
 
 async function convertM4aToWav(inputPath: string): Promise<{ wavPath: string; sampleRate: number }> {
   console.log(`Converting ${inputPath} to wav format...`);
@@ -114,6 +117,49 @@ app.post('/transcribe', upload.single('audio'), async (req: Request, res: Respon
     console.error(`There was an error transcribing the audio file: ${error}`);
 
     res.status(500).send('Transcription failed.');
+  }
+});
+
+app.post('/speak', async (req: Request, res: Response): Promise<void> => {
+  const { text } = req.body;
+
+  if (!text) {
+    console.warn('No "text" provided in request body');
+    res.status(400).json({ error: 'Missing "text" in request body' });
+
+    return
+  }
+
+  console.log(`Received text to synthesize: "${text}"`);
+
+  const request: protos.google.cloud.texttospeech.v1.ISynthesizeSpeechRequest = {
+    input: { text },
+    voice: {
+      languageCode: 'en-US',
+      ssmlGender: protos.google.cloud.texttospeech.v1.SsmlVoiceGender.FEMALE,
+    },
+    audioConfig: {
+      audioEncoding: protos.google.cloud.texttospeech.v1.AudioEncoding.MP3,
+    },
+  };
+
+  try {
+    const [response] = await ttsClient.synthesizeSpeech(request);
+
+    if (!response.audioContent) {
+      res.status(500).json({ error: 'Failed to synthesize speech' });
+
+      return
+    }
+
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Disposition': 'attachment; filename="speech.mp3"',
+    });
+    res.send(response.audioContent);
+  } catch (error) {
+    console.error('Text-to-Speech error:', error);
+    res.status(500).json({ error: 'Text-to-Speech failed' });
   }
 });
 
